@@ -126,13 +126,33 @@ claude-meter configure \
   --force-push 600
 ```
 
+`configure` sets the global options and the *first* display. To run more
+than one screen, see **Multiple displays** below.
+
 | Flag              | Default      | Meaning |
 | ----------------- | ------------ | ------- |
-| `--device-host`   | *(required)* | IP or hostname of the clock. |
-| `--mode`          | `gif80`      | `gif80` or `photo240`. See "Display modes" below. |
-| `--transport`     | `geekmagic`  | Only `geekmagic` is implemented today. |
+| `--device-host`   | *(required)* | IP or hostname of the (first) clock. |
+| `--mode`          | `gif80`      | `gif80`, `photo240`, or `fan80`. See "Display modes" below. |
+| `--transport`     | `geekmagic`  | `geekmagic` (SmallTV) or `geekmagic-ultra` (SmallTV-Ultra). |
 | `--push-interval` | `60`         | Seconds between fetches. Below ~30s tends to trip Anthropic's rate limiter; claude-meter honors `Retry-After` automatically but lighter polling is cleaner. |
 | `--force-push`    | `600`        | Re-push even when numbers are unchanged after this many seconds (keeps the display from looking stuck). |
+
+### Multiple displays
+
+One service can drive several clocks at once, each with its own mode and
+transport. Manage the list with `device`:
+
+```bash
+# A SmallTV showing the spinning fan, and a SmallTV-Ultra showing usage:
+claude-meter device add 192.168.1.125 --mode fan80
+claude-meter device add 192.168.1.128 --mode photo240 --transport geekmagic-ultra
+claude-meter device list
+claude-meter device remove 192.168.1.128
+```
+
+Each device de-dupes independently, and usage-mode displays share a single
+API fetch per cycle (so adding screens never multiplies API calls). Restart
+the service after changing the device list.
 
 Config is stored as JSON. Discovery order:
 
@@ -152,13 +172,25 @@ claude-meter show
   slot. Shown alongside the stock clock + weather. Good for
   "ambient" display.
 - **`photo240`** — full-screen 240×240 usage card with reset
-  countdowns. Requires Photo mode enabled on the clock:
-  *Settings → Photo*, `photo-switch` **ON**, `file1-switch` **ON**,
-  `file2-switch`…`file5-switch` **OFF**.
+  countdowns. On the original SmallTV (`geekmagic` transport), requires
+  Photo mode: *Settings → Photo*, `photo-switch` **ON**, `file1-switch`
+  **ON**, `file2-switch`…`file5-switch` **OFF**. On the SmallTV-Ultra
+  (`geekmagic-ultra` transport), claude-meter uploads the image and
+  switches the device to Photo Album mode automatically.
+- **`fan80`** — 80×80 animated card showing the Mac's fan speed: a fan
+  that genuinely spins on-device (spin rate scales with RPM) above the
+  current RPM. Reads the SMC directly (Apple Silicon Mac required); no
+  helper process. Uses the `geekmagic` transport's 33-frame container.
 
-Both modes push a single JPEG; `gif80` wraps it in the firmware's
-custom 33-frame container so it survives the Customization-GIF
-validator.
+`gif80`/`fan80` use the firmware's custom multi-frame container;
+`photo240` pushes a plain JPEG.
+
+### Transports
+
+- **`geekmagic`** — original SmallTV / SmallTV-Pro (`POST /upload`).
+- **`geekmagic-ultra`** — SmallTV-Ultra, which uses a different
+  firmware (`POST /doUpload` + Photo Album theme). Pair it with
+  `photo240`.
 
 ---
 
@@ -257,7 +289,7 @@ journalctl --user -u claude-meter -f
 
 ```
 claude-meter [-h] [--version]
-             {run,check,show,configure,install-service,uninstall-service,service-status}
+             {run,check,show,configure,device,install-service,uninstall-service,service-status}
 ```
 
 | Command              | Purpose |
@@ -265,7 +297,8 @@ claude-meter [-h] [--version]
 | `run`                | Run the push loop in the foreground. |
 | `check`              | Verify auth + API + config (one-shot). |
 | `show`               | Print the config file path and contents. |
-| `configure`          | Update config values (see flags above). |
+| `configure`          | Update global settings + the first device (see flags above). |
+| `device add/list/remove` | Manage displays for multi-screen setups. |
 | `install-service`    | Install as a launchd / systemd user service. |
 | `uninstall-service`  | Remove the installed service. |
 | `service-status`     | Print `launchctl list` / `systemctl status` output. |

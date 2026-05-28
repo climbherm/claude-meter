@@ -17,13 +17,14 @@ DISPLAY_SIZE = (240, 240)
 
 class Photo240Renderer:
     def render(self, five_pct: float, five_reset: str,
-               week_pct: float, week_reset: str) -> bytes:
+               week_pct: float, week_reset: str) -> list[bytes]:
         img  = Image.new("RGB", DISPLAY_SIZE, COLOR_BG)
         draw = ImageDraw.Draw(img)
 
         font_title = load_font(20)
         font_pct   = load_font(34)
-        font_small = load_font(14)
+        font_label = load_font(20)
+        font_small = load_font(18)
 
         draw.text((12, 8), "Claude usage", font=font_title, fill=COLOR_TEXT)
 
@@ -32,18 +33,19 @@ class Photo240Renderer:
             bar_pct     = min(pct_clamped, 100.0)
             color       = bar_color(pct_clamped)
 
-            draw.text((12, y), label, font=font_small, fill=COLOR_DIM)
             pct_text = f"{pct_clamped:.0f}%"
-            draw.text((216 - int(font_pct.getlength(pct_text)), y - 4),
+            draw.text((216 - int(font_pct.getlength(pct_text)), y - 6),
                       pct_text, font=font_pct, fill=color)
+            # Label sits just above its bar so the two read as one unit.
+            draw.text((12, y + 10), label, font=font_label, fill=COLOR_DIM)
 
-            bar_x, bar_y, bar_w, bar_h = 12, y + 38, 216, 14
+            bar_x, bar_y, bar_w, bar_h = 12, y + 32, 216, 14
             draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], fill=COLOR_TRACK)
             filled = int(bar_w * bar_pct / 100)
             if filled > 0:
                 draw.rectangle([bar_x, bar_y, bar_x + filled, bar_y + bar_h], fill=color)
 
-            draw.text((12, bar_y + bar_h + 4), f"resets {reset}",
+            draw.text((12, bar_y + bar_h + 5), f"resets {reset}",
                       font=font_small, fill=COLOR_DIM)
 
         draw_section(40,  "5h session", five_pct, five_reset)
@@ -51,4 +53,4 @@ class Photo240Renderer:
 
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
-        return buf.getvalue()
+        return [buf.getvalue()]

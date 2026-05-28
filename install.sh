@@ -76,7 +76,7 @@ info "Using $RESOLVED"
 
 # 5. Get the clock's IP — arg, env, existing config, or interactive prompt.
 DEVICE_HOST="$DEVICE_HOST_ARG"
-EXISTING="$(claude-meter show 2>/dev/null | awk -F'"' '/"device_host"/ {print $4}')"
+EXISTING="$(claude-meter show 2>/dev/null | awk -F'"' '/"host"/ {print $4; exit}')"
 
 if [[ -z "$DEVICE_HOST" ]]; then
   prompt="Enter the clock's IP address"

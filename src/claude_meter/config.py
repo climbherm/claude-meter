@@ -4,6 +4,11 @@ Stored as JSON at (in order of preference):
   $CLAUDE_METER_CONFIG                    (explicit override)
   $XDG_CONFIG_HOME/claude-meter/config.json
   ~/.config/claude-meter/config.json      (both macOS and Linux)
+
+The service can drive several displays at once: `devices` is a list of
+{host, mode} entries, each pushed independently. Older single-display
+configs (a top-level `device_host` + `mode`) are migrated to a one-entry
+`devices` list on load, so existing setups keep working.
 """
 from __future__ import annotations
 
@@ -13,11 +18,19 @@ import pathlib
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
+VALID_MODES = ("gif80", "photo240", "fan80")
+
+
+@dataclass
+class Device:
+    host: str = ""
+    mode: str = "gif80"          # gif80 | photo240 | fan80
+    transport: str = ""          # "" = inherit the top-level transport
+
 
 @dataclass
 class Config:
-    device_host: str = ""
-    mode:        str = "gif80"          # gif80 | photo240
+    devices:     list[Device] = field(default_factory=list)
     transport:   str = "geekmagic"
     push_interval_sec: int = 60
     force_push_sec:    int = 600
@@ -36,6 +49,22 @@ def config_path() -> pathlib.Path:
     return base / "claude-meter" / "config.json"
 
 
+def _devices_from_data(data: dict) -> list[Device]:
+    raw = data.get("devices")
+    if isinstance(raw, list):
+        out = []
+        for d in raw:
+            if isinstance(d, dict) and d.get("host"):
+                out.append(Device(host=d["host"], mode=d.get("mode", "gif80"),
+                                   transport=d.get("transport", "")))
+        return out
+    # Migrate the legacy single-display shape.
+    host = data.get("device_host") or ""
+    if host:
+        return [Device(host=host, mode=data.get("mode", "gif80"))]
+    return []
+
+
 def load(path: Optional[pathlib.Path] = None) -> Config:
     p = path or config_path()
     if not p.exists():
@@ -44,12 +73,12 @@ def load(path: Optional[pathlib.Path] = None) -> Config:
         data = json.loads(p.read_text())
     except Exception as e:
         raise RuntimeError(f"{p}: {e}") from e
+
     cfg = Config.defaults()
-    # Only copy keys that exist on the dataclass, so unknown keys are ignored.
-    valid = set(cfg.__dataclass_fields__.keys())
-    for k, v in data.items():
-        if k in valid:
-            setattr(cfg, k, v)
+    cfg.devices = _devices_from_data(data)
+    for k in ("transport", "push_interval_sec", "force_push_sec"):
+        if k in data:
+            setattr(cfg, k, data[k])
     return cfg
 
 

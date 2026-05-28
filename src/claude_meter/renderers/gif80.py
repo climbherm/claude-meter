@@ -5,41 +5,20 @@ shown as numbers with thin progress bars under each row.
 """
 from __future__ import annotations
 
-import io
-
 from PIL import Image, ImageDraw
 
 from claude_meter.renderers import (
-    COLOR_BG, COLOR_DIM, COLOR_TRACK, bar_color, load_font,
+    COLOR_BG, COLOR_DIM, COLOR_TRACK, bar_color, encode_device_jpeg, load_font,
 )
 
 DISPLAY_SIZE = (80, 80)
 
-# JFIF APP0 segment from the vendor converter's output (96x96 DPI density).
-# Firmware silently rejects frames using Pillow's default (0x00 01 01 00).
-APP0_BYTES = bytes.fromhex("ffe000104a46494600010101006000600000")
-
-# Baseline JPEG quantization tables extracted from converter output.
-# The hardware decoder on this device only accepts these values.
-LUMA_QTABLE = [
-    3, 2, 2, 3, 2, 2, 3, 3, 3, 3, 4, 3, 3, 4, 5, 8,
-    5, 5, 4, 4, 5, 10, 7, 7, 6, 8, 12, 10, 12, 12, 11, 10,
-    11, 11, 13, 14, 18, 16, 13, 14, 17, 14, 11, 11, 16, 22, 16, 17,
-    19, 20, 21, 21, 21, 12, 15, 23, 24, 22, 20, 24, 18, 20, 21, 20,
-]
-CHROMA_QTABLE = [
-    3, 4, 4, 5, 4, 5, 9, 5, 5, 9, 20, 13, 11, 13, 20, 20,
-    20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
-    20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
-    20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
-]
-
 
 class Gif80Renderer:
-    """Renders an 80x80 JPEG frame (no container wrapping — transport does that)."""
+    """Renders a single 80x80 usage frame (transport wraps it for the device)."""
 
     def render(self, five_pct: float, five_reset: str,
-               week_pct: float, week_reset: str) -> bytes:
+               week_pct: float, week_reset: str) -> list[bytes]:
         img  = Image.new("RGB", DISPLAY_SIZE, COLOR_BG)
         draw = ImageDraw.Draw(img)
 
@@ -65,8 +44,4 @@ class Gif80Renderer:
         draw_row(2,  "5h", five_pct)
         draw_row(42, "7d", week_pct)
 
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", qtables=[LUMA_QTABLE, CHROMA_QTABLE], subsampling=2)
-        frame = buf.getvalue()
-        # Patch APP0 (bytes [2..20]) to the firmware-expected density.
-        return frame[:2] + APP0_BYTES + frame[20:]
+        return [encode_device_jpeg(img)]

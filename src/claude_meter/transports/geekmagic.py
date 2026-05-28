@@ -10,7 +10,9 @@ The filename picks which slot to overwrite:
                               <u32 offset> <u32 size>. Record 0's `id`
                               holds the total frame count; records 1..N-1
                               hold absolute offsets. Frame count must be
-                              >= a device-specific minimum (33 works).
+                              >= a device-specific minimum (33 works). The
+                              device plays the 33 slots in order, so
+                              distinct frames animate.
   - "file1.jpg".."file5.jpg" -> Photo-mode full-screen slots (plain JPEG).
 Max 1 MB per the device's JS check.
 """
@@ -28,7 +30,7 @@ class GeekmagicTransport:
     def __init__(self, host: str, mode: str):
         """
         host: "192.168.1.50" or "http://192.168.1.50" (your clock's IP)
-        mode: "gif80" -> writes gif.jpg with container wrap;
+        mode: "gif80"/"fan80" -> writes gif.jpg with container wrap;
               "photo240" -> writes file1.jpg as-is
         """
         if not host.startswith("http"):
@@ -36,12 +38,14 @@ class GeekmagicTransport:
         self._url  = f"{host.rstrip('/')}/upload"
         self._mode = mode
 
-    def push(self, payload: bytes) -> int:
-        if self._mode == "gif80":
-            body = _build_gif_container(payload)
+    def push(self, frames: list[bytes]) -> int:
+        """Send rendered frames. `frames` has one entry for a static card or
+        several for an animation. Returns bytes-on-wire for logging."""
+        if self._mode in ("gif80", "fan80"):
+            body = _build_gif_container(frames)
             filename = "gif.jpg"
         elif self._mode == "photo240":
-            body = payload
+            body = frames[0]
             filename = "file1.jpg"
         else:
             raise ValueError(f"unsupported mode for geekmagic: {self._mode!r}")
@@ -66,24 +70,56 @@ class GeekmagicTransport:
         return len(body)
 
 
-def _build_gif_container(frame: bytes, count: int = GIF_FRAME_COUNT) -> bytes:
-    """
-    Wrap a single JPEG frame in the firmware's container format.
+def _build_gif_container(frames: list[bytes], count: int = GIF_FRAME_COUNT) -> bytes:
+    """Wrap rendered frames in the firmware's container format.
 
-    The usage card is static, so all `count` frames are byte-identical.
-    Instead of shipping `count` physical copies, lay down one frame and
-    alias every index record back at it (offset 0). The index still
-    declares `count` frames so the firmware's minimum-frame check passes,
-    but the upload carries one frame instead of `count` — roughly 88 KB
-    down to ~5 KB, so the device writes far less flash per push.
+    The device always wants `count` frame slots. `frames` may hold fewer
+    than that: we cycle through them to fill the slots (for the fan, the
+    frame set is one full turn, so cycling loops the spin seamlessly).
+    Byte-identical frames are laid down once and aliased by multiple index
+    records, so a static card ships a single physical frame and an N-frame
+    loop ships only its N distinct frames — never `count` copies.
 
-    Layout: frame0 | 2400-byte index. Every record -> (offset 0, f_size).
+    Layout: unique[0] | 2400-byte index | unique[1] | unique[2] | ...
+    Every record carries the absolute offset+size of the frame its slot
+    shows.
     """
-    f_size = len(frame)
-    idx    = bytearray(GIF_INDEX_SIZE)
-    # Record 0: id = total frame count; offset/size point at frame0.
-    struct.pack_into("<HHII", idx, 0, 0x01ff, count, 0, f_size)
-    # Records 1..count-1: alias every frame back to frame0 at offset 0.
-    for k in range(1, count):
-        struct.pack_into("<HHII", idx, k * 12, 0x01ff, k, 0, f_size)
-    return frame + bytes(idx)
+    if not frames:
+        raise ValueError("no frames to push")
+
+    slots = [frames[k % len(frames)] for k in range(count)]
+
+    # Deduplicate by bytes so repeated frames cost nothing on the wire.
+    unique: list[bytes] = []
+    index_of: dict[bytes, int] = {}
+    slot_to_unique: list[int] = []
+    for fr in slots:
+        u = index_of.get(fr)
+        if u is None:
+            u = len(unique)
+            index_of[fr] = u
+            unique.append(fr)
+        slot_to_unique.append(u)
+
+    # Absolute offsets: unique[0] sits before the index block, the rest after.
+    offsets = [0] * len(unique)
+    pos = len(unique[0]) + GIF_INDEX_SIZE
+    for i in range(1, len(unique)):
+        offsets[i] = pos
+        pos += len(unique[i])
+
+    idx = bytearray(GIF_INDEX_SIZE)
+    for k in range(count):
+        u = slot_to_unique[k]
+        # Record 0's id field carries the total frame count; later records
+        # carry the slot id. Offset/size always point at the slot's frame.
+        ident = count if k == 0 else k
+        struct.pack_into("<HHII", idx, k * 12, 0x01ff, ident,
+                         offsets[u], len(unique[u]))
+
+    body = bytearray()
+    body += unique[0]
+    body += bytes(idx)
+    for i in range(1, len(unique)):
+        body += unique[i]
+    return bytes(body)
