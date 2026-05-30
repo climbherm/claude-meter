@@ -9,10 +9,11 @@ The filename picks which slot to overwrite:
                               per 12-byte record: <u16 0x01ff> <u16 id>
                               <u32 offset> <u32 size>. Record 0's `id`
                               holds the total frame count; records 1..N-1
-                              hold absolute offsets. Frame count must be
-                              >= a device-specific minimum (33 works). The
-                              device plays the 33 slots in order, so
-                              distinct frames animate.
+                              hold absolute offsets. We declare exactly as
+                              many frames as we render (1 for a static card,
+                              N for an N-frame loop) and the device plays
+                              those slots in order. The index block itself
+                              is a fixed 2400 bytes regardless of the count.
   - "file1.jpg".."file5.jpg" -> Photo-mode full-screen slots (plain JPEG).
 Max 1 MB per the device's JS check.
 """
@@ -22,8 +23,7 @@ import struct
 
 import requests
 
-GIF_INDEX_SIZE  = 2400
-GIF_FRAME_COUNT = 33
+GIF_INDEX_SIZE = 2400
 
 
 class GeekmagicTransport:
@@ -70,15 +70,15 @@ class GeekmagicTransport:
         return len(body)
 
 
-def _build_gif_container(frames: list[bytes], count: int = GIF_FRAME_COUNT) -> bytes:
+def _build_gif_container(frames: list[bytes], count: int | None = None) -> bytes:
     """Wrap rendered frames in the firmware's container format.
 
-    The device always wants `count` frame slots. `frames` may hold fewer
-    than that: we cycle through them to fill the slots (for the fan, the
-    frame set is one full turn, so cycling loops the spin seamlessly).
-    Byte-identical frames are laid down once and aliased by multiple index
-    records, so a static card ships a single physical frame and an N-frame
-    loop ships only its N distinct frames — never `count` copies.
+    `count` is how many frame slots the device is told to play; it defaults
+    to one slot per rendered frame (1 for a static card, N for an N-frame
+    loop). It can be set larger to repeat the frames into more slots, useful
+    when experimenting with the device's playback. Byte-identical frames are
+    laid down once and aliased by multiple index records, so a static card
+    ships a single physical frame however many slots it declares.
 
     Layout: unique[0] | 2400-byte index | unique[1] | unique[2] | ...
     Every record carries the absolute offset+size of the frame its slot
@@ -87,6 +87,8 @@ def _build_gif_container(frames: list[bytes], count: int = GIF_FRAME_COUNT) -> b
     if not frames:
         raise ValueError("no frames to push")
 
+    if count is None:
+        count = len(frames)
     slots = [frames[k % len(frames)] for k in range(count)]
 
     # Deduplicate by bytes so repeated frames cost nothing on the wire.
