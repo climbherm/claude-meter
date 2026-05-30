@@ -20,8 +20,10 @@ from claude_meter import fan, renderers, transports
 from claude_meter.config import Config, Device
 
 # Read the fan a little more often than the API default so the RPM number
-# feels live; pushes still only happen when the value actually changes.
-FAN_POLL_SEC = 5
+# feels live; pushes still only happen when the value actually changes. Kept
+# at 15s (not lower) to cap how often a ramping fan can upload to the device,
+# since sustained frequent writes stress the clock's flash.
+FAN_POLL_SEC = 15
 
 _USAGE_MODES = ("gif80", "photo240")
 
