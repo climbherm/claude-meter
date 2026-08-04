@@ -1,6 +1,9 @@
 """HTTP upload to a GeeKmagic SmallTV clock.
 
 The stock firmware accepts POST /upload with multipart field "imageFile".
+SmallTV-Ultra firmware (observed on Ultra-V9.0.50/51) uses
+POST /doUpload?dir=/image/ instead and 404s on /upload; the transport
+tries /upload first and falls back once on 404.
 The filename picks which slot to overwrite:
   - "gif.jpg"              -> main-screen Customization GIF slot. The body
                               must be the firmware's custom animated-GIF
@@ -33,7 +36,10 @@ class GeekmagicTransport:
         """
         if not host.startswith("http"):
             host = f"http://{host}"
-        self._url  = f"{host.rstrip('/')}/upload"
+        base = host.rstrip("/")
+        self._url_primary  = f"{base}/upload"
+        self._url_fallback = f"{base}/doUpload?dir=/image/"
+        self._url: str | None = None  # resolved on first successful push
         self._mode = mode
 
     def push(self, payload: bytes) -> int:
@@ -46,6 +52,24 @@ class GeekmagicTransport:
         else:
             raise ValueError(f"unsupported mode for geekmagic: {self._mode!r}")
 
+        if self._url is not None:
+            self._post(self._url, filename, body)
+            return len(body)
+
+        try:
+            self._post(self._url_primary, filename, body)
+            self._url = self._url_primary
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status != 404:
+                raise
+            self._post(self._url_fallback, filename, body)
+            self._url = self._url_fallback
+            print("geekmagic: /upload not found; using /doUpload "
+                  "(SmallTV-Ultra firmware)", flush=True)
+        return len(body)
+
+    def _post(self, url: str, filename: str, body: bytes) -> None:
         # The firmware often sends a truncated HTTP response after a
         # successful write — status line + headers, then it closes the
         # socket mid-body. Stream the response so we read only the
@@ -54,7 +78,7 @@ class GeekmagicTransport:
         # (connect, read-headers): the device can be slow to reply
         # while it commits the image to flash.
         resp = requests.post(
-            self._url,
+            url,
             files={"imageFile": (filename, body, "image/jpeg")},
             timeout=(5, 15),
             stream=True,
@@ -63,7 +87,6 @@ class GeekmagicTransport:
             resp.raise_for_status()
         finally:
             resp.close()
-        return len(body)
 
 
 def _build_gif_container(frame: bytes, count: int = GIF_FRAME_COUNT) -> bytes:
