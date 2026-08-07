@@ -50,6 +50,7 @@ def run(cfg: Config) -> None:
                       f"pushed {n}B ({cfg.mode})", flush=True)
             fail_streak = 0
             alert_shown = False
+            open("/Users/abramherman/.local/state/clock-heartbeats/meter", "w").write(str(time.time()))
         except KeyboardInterrupt:
             print("bye", flush=True)
             sys.exit(0)
