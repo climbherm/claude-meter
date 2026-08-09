@@ -51,12 +51,13 @@ class Photo240Renderer:
         else:
             name, s_pct, s_reset = scoped
             font_pct_c = load_font(30)
+            font_label_c = load_font(16)
 
             def draw_compact(y: int, label: str, pct: float, reset: str):
                 pct_clamped = max(0.0, min(pct, 999.0))
                 bar_pct     = min(pct_clamped, 100.0)
                 color       = bar_color(pct_clamped)
-                draw.text((12, y), label, font=font_small, fill=COLOR_DIM)
+                draw.text((12, y), label, font=font_label_c, fill=COLOR_DIM)
                 pct_text = f"{pct_clamped:.0f}%"
                 draw.text((216 - int(font_pct_c.getlength(pct_text)), y - 4),
                           pct_text, font=font_pct_c, fill=color)
