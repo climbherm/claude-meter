@@ -8,7 +8,7 @@ import time
 
 from claude_meter import renderers, transports
 from claude_meter.config import Config
-from claude_meter.usage import RateLimited, extract, fetch_usage
+from claude_meter.usage import RateLimited, extract, extract_scoped, fetch_usage
 
 
 def run(cfg: Config) -> None:
@@ -35,14 +35,20 @@ def run(cfg: Config) -> None:
                 logged_once = True
 
             five_pct, five_reset, week_pct, week_reset = extract(data)
-            key = (int(round(five_pct)), int(round(week_pct)))
+            scoped = extract_scoped(data) if cfg.mode == "photo240" else None
+            key = (int(round(five_pct)), int(round(week_pct)),
+                   int(round(scoped[1])) if scoped else -1)
             now = time.time()
 
             if last_key == key and (now - last_push_ts) < cfg.force_push_sec:
                 print(f"{_ts()} 5h {five_pct:.0f}%  7d {week_pct:.0f}%  "
                       f"unchanged, skipped", flush=True)
             else:
-                payload = renderer.render(five_pct, five_reset, week_pct, week_reset)
+                if scoped is not None:
+                    payload = renderer.render(five_pct, five_reset,
+                                              week_pct, week_reset, scoped=scoped)
+                else:
+                    payload = renderer.render(five_pct, five_reset, week_pct, week_reset)
                 n = transport.push(payload)
                 last_key     = key
                 last_push_ts = now

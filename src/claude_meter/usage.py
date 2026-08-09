@@ -107,3 +107,16 @@ def extract(data: dict) -> tuple[float, str, float, str]:
         float(week.get("utilization") or 0),
         format_reset(week.get("resets_at", "")),
     )
+
+
+def extract_scoped(data: dict):
+    """First weekly model-scoped limit as (display_name, pct, reset) or None."""
+    for lim in data.get("limits") or []:
+        if lim.get("kind") != "weekly_scoped":
+            continue
+        model = ((lim.get("scope") or {}).get("model") or {})
+        name = model.get("display_name")
+        if name:
+            return (name, float(lim.get("percent") or 0),
+                    format_reset(lim.get("resets_at") or ""))
+    return None
