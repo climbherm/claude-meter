@@ -25,8 +25,6 @@ class Photo240Renderer:
         font_pct   = load_font(34)
         font_small = load_font(14)
 
-        draw.text((12, 8), "Claude usage", font=font_title, fill=COLOR_TEXT)
-
         def draw_section(y: int, label: str, pct: float, reset: str):
             pct_clamped = max(0.0, min(pct, 999.0))
             bar_pct     = min(pct_clamped, 100.0)
@@ -47,11 +45,12 @@ class Photo240Renderer:
                       font=font_small, fill=COLOR_DIM)
 
         if scoped is None:
+            draw.text((12, 8), "Claude usage", font=font_title, fill=COLOR_TEXT)
             draw_section(40,  "5h session", five_pct, five_reset)
             draw_section(140, "7d weekly",  week_pct, week_reset)
         else:
             name, s_pct, s_reset = scoped
-            font_pct_c = load_font(28)
+            font_pct_c = load_font(30)
 
             def draw_compact(y: int, label: str, pct: float, reset: str):
                 pct_clamped = max(0.0, min(pct, 999.0))
@@ -61,7 +60,7 @@ class Photo240Renderer:
                 pct_text = f"{pct_clamped:.0f}%"
                 draw.text((216 - int(font_pct_c.getlength(pct_text)), y - 4),
                           pct_text, font=font_pct_c, fill=color)
-                bar_x, bar_y, bar_w, bar_h = 12, y + 30, 216, 10
+                bar_x, bar_y, bar_w, bar_h = 12, y + 32, 216, 12
                 draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
                                fill=COLOR_TRACK)
                 filled = int(bar_w * bar_pct / 100)
@@ -71,9 +70,9 @@ class Photo240Renderer:
                 draw.text((12, bar_y + bar_h + 2), f"resets {reset}",
                           font=font_small, fill=COLOR_DIM)
 
-            draw_compact(36,  "5h session", five_pct, five_reset)
-            draw_compact(100, "7d weekly",  week_pct, week_reset)
-            draw_compact(164, f"7d {name}", s_pct, s_reset)
+            draw_compact(12,  "5h session", five_pct, five_reset)
+            draw_compact(86,  "7d weekly",  week_pct, week_reset)
+            draw_compact(160, f"7d {name}", s_pct, s_reset)
 
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
