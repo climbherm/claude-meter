@@ -44,7 +44,34 @@ class Photo240Renderer:
             draw.text((12, bar_y + bar_h + 4), f"resets {reset}",
                       font=font_small, fill=COLOR_DIM)
 
-        if scoped is None:
+        if scoped is not None and five_reset == "unknown":
+            # Plans with no session limit (five_hour is null): two roomy rows.
+            name, s_pct, s_reset = scoped
+            font_pct_2 = load_font(40)
+            font_label_2 = load_font(20)
+            font_reset_2 = load_font(16)
+
+            def draw_wide(y: int, label: str, pct: float, reset: str):
+                pct_clamped = max(0.0, min(pct, 999.0))
+                bar_pct     = min(pct_clamped, 100.0)
+                color       = bar_color(pct_clamped)
+                draw.text((12, y), label, font=font_label_2, fill=COLOR_DIM)
+                pct_text = f"{pct_clamped:.0f}%"
+                draw.text((228 - int(font_pct_2.getlength(pct_text)), y - 8),
+                          pct_text, font=font_pct_2, fill=color)
+                bar_x, bar_y, bar_w, bar_h = 12, y + 46, 216, 16
+                draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
+                               fill=COLOR_TRACK)
+                filled = int(bar_w * bar_pct / 100)
+                if filled > 0:
+                    draw.rectangle([bar_x, bar_y, bar_x + filled, bar_y + bar_h],
+                                   fill=color)
+                draw.text((12, bar_y + bar_h + 6), f"resets {reset}",
+                          font=font_reset_2, fill=COLOR_DIM)
+
+            draw_wide(22,  "7d weekly", week_pct, week_reset)
+            draw_wide(130, f"7d {name}", s_pct, s_reset)
+        elif scoped is None:
             draw.text((12, 8), "Claude usage", font=font_title, fill=COLOR_TEXT)
             draw_section(40,  "5h session", five_pct, five_reset)
             draw_section(140, "7d weekly",  week_pct, week_reset)
