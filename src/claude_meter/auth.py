@@ -311,6 +311,31 @@ def get_access_token() -> tuple[str, str]:
                   file=sys.stderr)
             invalidate_cached_token()
 
-    result = _fresh_oauth_token(session_key, org_id)
+    try:
+        result = _fresh_oauth_token(session_key, org_id)
+    except Exception as e:
+        # 2026-11-13: after a Desktop sign-out/sign-in the cookie-based mint
+        # answered 400 for hours and the meter sat frozen. The Claude Code CLI
+        # keeps a working token in the Keychain (refreshed by the CLI's own
+        # jobs); use it rather than show stale numbers. Upstream avoids this
+        # path for rate-limit reasons, so it stays a fallback, not the default.
+        kc = _keychain_token()
+        if kc:
+            print(f"[warn] desktop-cookie OAuth mint failed ({type(e).__name__}: {str(e)[:60]}); "
+                  f"falling back to the Claude Code Keychain token", file=sys.stderr)
+            return kc, org_id
+        raise
     _save_token(result)
     return result["access_token"], result.get("organization_uuid", org_id)
+
+
+def _keychain_token() -> str:
+    """Access token from the 'Claude Code-credentials' login Keychain item, or ''."""
+    try:
+        import subprocess
+        raw = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=10).stdout.strip()
+        return (json.loads(raw).get("claudeAiOauth") or {}).get("accessToken", "") or ""
+    except Exception:
+        return ""
