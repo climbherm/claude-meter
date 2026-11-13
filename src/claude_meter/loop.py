@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import sys
 import time
 
@@ -57,6 +58,10 @@ def run(cfg: Config) -> None:
             fail_streak = 0
             alert_shown = False
             open("/Users/abramherman/.local/state/clock-heartbeats/meter", "w").write(str(time.time()))
+            try:
+                os.remove("/Users/abramherman/.local/state/clock-heartbeats/meter.reason")
+            except OSError:
+                pass
         except KeyboardInterrupt:
             print("bye", flush=True)
             sys.exit(0)
@@ -69,6 +74,22 @@ def run(cfg: Config) -> None:
             sleep_for = min(cfg.push_interval_sec * (2 ** (fail_streak - 1)), 600)
             print(f"{_ts()} [warn] {type(e).__name__}: {e} "
                   f"(retry in {sleep_for}s)", flush=True)
+            # Leave the cause where the clock watchdog can read it, so a stale
+            # heartbeat alert can say "login expired" vs "clock unreachable".
+            try:
+                msg = str(e)
+                if any(c in msg for c in ("400", "401", "403")) or "token" in msg.lower():
+                    reason = "Claude login/token rejected - run `claude /login` (or sign out/in of Claude Desktop)"
+                elif "No route" in msg or "ConnectTimeout" in type(e).__name__ or "Connection" in type(e).__name__:
+                    reason = f"clock {cfg.device_host} unreachable - check its power/wifi"
+                elif "429" in msg:
+                    reason = "rate limited by the usage API"
+                else:
+                    reason = f"{type(e).__name__}: {msg[:80]}"
+                with open("/Users/abramherman/.local/state/clock-heartbeats/meter.reason", "w") as f:
+                    f.write(f"{reason} (x{fail_streak})")
+            except Exception:
+                pass
             if (not alert_shown) and cfg.mode == "photo240" and "403" in str(e):
                 try:
                     transport.push(_auth_alert_frame())

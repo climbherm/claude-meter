@@ -65,7 +65,11 @@ def fetch_usage() -> dict:
                 if e2.code == 429:
                     raise RateLimited(_parse_retry_after(e2.headers.get("Retry-After"))) from e2
                 raise
-        if e.code not in (401, 403):
+        # 400 joined 401/403 on 2026-11-13: after a Keychain credential swap the
+        # usage endpoint answered 400 Bad Request for hours with a token the CLI
+        # itself still accepted; only a re-mint cleared it. Treat it as "token
+        # is wrong", not as a transient error.
+        if e.code not in (400, 401, 403):
             raise
         invalidate_cached_token()
         token, _org = get_access_token()
