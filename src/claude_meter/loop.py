@@ -12,6 +12,9 @@ from claude_meter.config import Config
 from claude_meter.usage import RateLimited, extract, extract_scoped, fetch_usage
 
 
+FRESH_ENOUGH_SEC = 1800   # rate-limited polls don't count as "frozen" until the data is this old
+
+
 def run(cfg: Config) -> None:
     if not cfg.device_host:
         raise SystemExit(
@@ -26,6 +29,7 @@ def run(cfg: Config) -> None:
     last_push_ts = 0.0
     fail_streak  = 0
     alert_shown  = False
+    last_ok_ts   = 0.0
 
     while True:
         sleep_for = cfg.push_interval_sec
@@ -57,6 +61,7 @@ def run(cfg: Config) -> None:
                       f"pushed {n}B ({cfg.mode})", flush=True)
             fail_streak = 0
             alert_shown = False
+            last_ok_ts  = now
             open("/Users/abramherman/.local/state/clock-heartbeats/meter", "w").write(str(time.time()))
             try:
                 os.remove("/Users/abramherman/.local/state/clock-heartbeats/meter.reason")
@@ -69,6 +74,21 @@ def run(cfg: Config) -> None:
             sleep_for = max(e.retry_after, cfg.push_interval_sec)
             print(f"{_ts()} [warn] 429 rate limited, sleeping {sleep_for}s",
                   flush=True)
+            # 2026-11-19: a few rate-limited polls in a row pushed the heartbeat
+            # past the watchdog's 7 minutes and it announced "frozen" while the
+            # display was correct. Numbers under 30 minutes old are not frozen:
+            # keep the heartbeat alive; a longer stall still alerts.
+            if last_ok_ts and time.time() + sleep_for - last_ok_ts < FRESH_ENOUGH_SEC:
+                try:
+                    open("/Users/abramherman/.local/state/clock-heartbeats/meter", "w").write(str(time.time()))
+                except OSError:
+                    pass
+            else:
+                try:
+                    with open("/Users/abramherman/.local/state/clock-heartbeats/meter.reason", "w") as f:
+                        f.write(f"rate limited by the usage API; next try in {sleep_for // 60} min")
+                except OSError:
+                    pass
         except Exception as e:
             fail_streak += 1
             sleep_for = min(cfg.push_interval_sec * (2 ** (fail_streak - 1)), 600)

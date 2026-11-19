@@ -59,7 +59,13 @@ def fetch_usage() -> dict:
         if e.code == 429:
             invalidate_cached_token()
             try:
+                old_token = token
                 token, _org = get_access_token()
+                if token == old_token:
+                    # 2026-11-19: on the Keychain-fallback token a "re-mint"
+                    # hands back the same token, so the retry was a second
+                    # rate-limited call every cycle. Honor Retry-After instead.
+                    raise RateLimited(_parse_retry_after(e.headers.get("Retry-After"))) from e
                 return _get(token)
             except urllib.error.HTTPError as e2:
                 if e2.code == 429:
